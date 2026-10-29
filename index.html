@@ -119,6 +119,7 @@
 
   let voices = [];
   let stopped = false;
+  let tries = 0;
 
   if (!synth) {
     statusEl.textContent = 'المتصفح لا يدعم تحويل النص إلى صوت.';
@@ -126,28 +127,46 @@
 
   function loadVoices() {
     voices = synth.getVoices();
-    // ترتيب: الأصوات العربية أولًا
-    voices.sort((a, b) => {
+    voices = voices.slice().sort((a, b) => {
       const aAr = a.lang.toLowerCase().startsWith('ar') ? 0 : 1;
       const bAr = b.lang.toLowerCase().startsWith('ar') ? 0 : 1;
       return aAr - bAr || a.name.localeCompare(b.name);
     });
+
+    const previous = voiceEl.value;
     voiceEl.innerHTML = '';
+
+    // خيار ثابت: عربي تلقائي (يعمل حتى لو لم يظهر اسم الصوت)
+    const auto = document.createElement('option');
+    auto.value = 'auto-ar';
+    auto.textContent = 'عربي (تلقائي) ⭐';
+    voiceEl.appendChild(auto);
+
     voices.forEach((v, i) => {
       const opt = document.createElement('option');
       opt.value = i;
       opt.textContent = v.name + ' (' + v.lang + ')';
       voiceEl.appendChild(opt);
     });
-    if (!voices.length) {
-      statusEl.textContent = 'لم يتم العثور على أصوات، جرّب إعادة تحميل الصفحة.';
+
+    if (previous && voiceEl.querySelector('option[value="' + previous + '"]')) {
+      voiceEl.value = previous;
     }
+
+    const arCount = voices.filter(v => v.lang.toLowerCase().startsWith('ar')).length;
+    statusEl.textContent = 'عدد الأصوات: ' + voices.length + ' | العربية: ' + arCount;
   }
 
   loadVoices();
   if (synth && synth.onvoiceschanged !== undefined) {
     synth.onvoiceschanged = loadVoices;
   }
+  // إعادة المحاولة لأن بعض الهواتف تتأخر في تحميل الأصوات
+  const retry = setInterval(() => {
+    tries++;
+    loadVoices();
+    if (tries >= 10) clearInterval(retry);
+  }, 700);
 
   rateEl.oninput = () => document.getElementById('rateVal').textContent = rateEl.value;
   pitchEl.oninput = () => document.getElementById('pitchVal').textContent = pitchEl.value;
@@ -175,8 +194,16 @@
       return;
     }
     const u = new SpeechSynthesisUtterance(chunks[index]);
-    const v = voices[voiceEl.value];
-    if (v) { u.voice = v; u.lang = v.lang; }
+
+    if (voiceEl.value === 'auto-ar') {
+      u.lang = 'ar-SA';
+      const ar = voices.find(v => v.lang.toLowerCase().startsWith('ar'));
+      if (ar) u.voice = ar;
+    } else {
+      const v = voices[voiceEl.value];
+      if (v) { u.voice = v; u.lang = v.lang; }
+    }
+
     u.rate = parseFloat(rateEl.value);
     u.pitch = parseFloat(pitchEl.value);
     u.onstart = () => statusEl.textContent = 'جارٍ القراءة... (' + (index + 1) + '/' + chunks.length + ')';
@@ -194,6 +221,7 @@
     if (!text) { statusEl.textContent = 'اكتب نصًا أولًا.'; return; }
     synth.cancel();
     stopped = false;
+    synth.resume();
     speakChunks(splitText(text), 0);
   };
 
